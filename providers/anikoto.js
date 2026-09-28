@@ -137,6 +137,9 @@ async function findAnikotoShow(media) {
   })).sort((a, b) => b.score - a.score);
 
   const chosen = scored[0];
+  if (!chosen || chosen.score < 35) {
+    throw new Error(`No confident AniKoto match for: ${primaryEn || primaryRom}`);
+  }
   const watchHtml = await httpGet(`${ANIKOTO}/watch/${chosen.slug}`, { Referer: `${ANIKOTO}/` });
   const showIdMatch = watchHtml.match(/data-id="(\d+)"/);
   if (!showIdMatch) throw new Error(`Could not find show ID for slug: ${chosen.slug}`);

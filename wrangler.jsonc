@@ -1,0 +1,12 @@
+{
+  "name": "tatakai-anivexa",
+  "main": "index.js",
+  "compatibility_date": "2026-07-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "VERCEL": "1"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

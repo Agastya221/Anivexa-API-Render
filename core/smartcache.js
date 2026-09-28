@@ -17,8 +17,7 @@ function envInt(name, fallback) {
   return raw !== undefined && raw !== "" && Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-// change CACHE_ENABLED=true in .env and set your upstash credentials to enable caching
-export const _CACHE_ENABLED = envBool("CACHE_ENABLED", false);
+export const _CACHE_ENABLED = envBool("CACHE_ENABLED", true);
 
 const IS_LOCAL_NODE = (() => {
   try {
@@ -32,7 +31,12 @@ const IS_LOCAL_NODE = (() => {
 
 const UPSTASH_REDIS_REST_URL = readEnv("UPSTASH_REDIS_REST_URL") ?? ""; //get it from upstash.com
 const UPSTASH_REDIS_REST_TOKEN = readEnv("UPSTASH_REDIS_REST_TOKEN") ?? "";
-const REDIS_ENABLED = Boolean(UPSTASH_REDIS_REST_URL && UPSTASH_REDIS_REST_TOKEN);
+const REDIS_ENABLED = Boolean(
+  /^https:\/\//.test(UPSTASH_REDIS_REST_URL) &&
+  !UPSTASH_REDIS_REST_URL.includes("YOUR_") &&
+  UPSTASH_REDIS_REST_TOKEN &&
+  !UPSTASH_REDIS_REST_TOKEN.includes("YOUR_"),
+);
 
 // DEFAULT_REDIS_TTL is in seconds (default 900s / 15min) — used as the fallback expiry
 // for Redis writes that don't carry their own computed ttl (see redisWrite below).

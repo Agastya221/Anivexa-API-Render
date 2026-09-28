@@ -70,14 +70,16 @@ async function getMedia(anilistId) {
   if (resolved.has(id)) return resolved.get(id);
   if (inflight.has(id)) return inflight.get(id);
   const promise = (async () => {
-    const arm = await fetch(`${ARM}?source=anilist&id=${id}`, {
-      headers: { "User-Agent": UA, "Accept": "application/json" }
-    }).then((r) => {
-      if (!r.ok) return null;
-      return r.json();
-    }).catch(() => null);
+    const [arm, al] = await Promise.all([
+      fetch(`${ARM}?source=anilist&id=${id}`, {
+        headers: { "User-Agent": UA, "Accept": "application/json" }
+      }).then((r) => {
+        if (!r.ok) return null;
+        return r.json();
+      }).catch(() => null),
+      fetchFromAniList(id).catch(() => null),
+    ]);
 
-    const al = await fetchFromAniList(id);
     if (!al) throw new Error(`No data found for AniList ID ${id}`);
     const media = {
       id,

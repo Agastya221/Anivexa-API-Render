@@ -206,7 +206,7 @@ Copy `.env.example` to `.env` and fill in the values.
 
 | Variable | Default | Notes |
 |---|---|---|
-| `CACHE_ENABLED` | `false` | Set to `true` to enable caching (memory + disk + Redis). |
+| `CACHE_ENABLED` | `true` | Set to `false` to disable caching. Redis is optional. |
 | `UPSTASH_REDIS_REST_URL` | — | From [upstash.com](https://upstash.com). Only used when `CACHE_ENABLED=true`. |
 | `UPSTASH_REDIS_REST_TOKEN` | — | From [upstash.com](https://upstash.com). Only used when `CACHE_ENABLED=true`. |
 | `DEFAULT_REDIS_TTL` | `900` | Seconds. Fallback expiry for Redis writes when a per-item TTL isn't computed. Most cache entries use their own smart TTLs based on anime status (finished/airing/etc.) — this is just the safety-net default. |
@@ -216,6 +216,14 @@ Copy `.env.example` to `.env` and fill in the values.
 | `MKISSA_WREQ_REQUIRED` | `false` | Set to `1` to return a wreq-js error instead of falling back to Node fetch when its native binding is unavailable. |
 
 On Vercel (or Railway/Render), set these as regular project environment variables instead of committing `.env`.
+
+---
+
+## Deploying on Render
+
+Create a Node web service from this repository with `npm ci` as the build command and `npm start` as the start command. Use `/healthz` as the health check path. Render supplies `PORT` automatically. Set any Upstash credentials in the service environment if Redis caching is needed.
+
+After deployment, set `ANIVEXA_API_BASE_URL` in the anime website to the service's HTTPS URL. Check `/episodes/anikoto/animegg/anineko/16498?map=false` and a matching `/watch/:provider/:anilistId/sub|dub/:provider-:ep` route from the deployed host before switching traffic.
 
 ---
 

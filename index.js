@@ -29,6 +29,17 @@ function json(data, status = 200) {
   });
 }
 
+async function edgeCached(request, handlerFn) {
+  const edgeCache = globalThis.caches?.default;
+  if (!edgeCache || request.method !== "GET") return handlerFn();
+  const key = new Request(request.url, { method: "GET" });
+  const cached = await edgeCache.match(key);
+  if (cached) return cached;
+  const response = await handlerFn();
+  if (response.ok) await edgeCache.put(key, response.clone()).catch(() => {});
+  return response;
+}
+
 function rewriteRequest(request, newPath) {
   const u = new URL(request.url);
   u.pathname = newPath;
@@ -63,6 +74,43 @@ async function cachedWatch(cacheKey, handlerFn, ttl = WATCH_TTL) {
   watchInflight.set(cacheKey, promise);
   try   { return await promise; }
   finally { watchInflight.delete(cacheKey); }
+}
+
+async function unavailableEpisodeResponse(anilistId, episodeNumber) {
+  const media = await getMedia(anilistId).catch(() => null);
+  if (!media) return null;
+
+  const episode = Number(episodeNumber);
+  const nextEpisode = media.nextAiringEpisode?.episode == null
+    ? null
+    : Number(media.nextAiringEpisode.episode);
+  const totalEpisodes = media.episodes == null ? null : Number(media.episodes);
+  const notYetReleased = media.status === "NOT_YET_RELEASED";
+  const hasNotAired = Number.isFinite(nextEpisode) && episode >= nextEpisode;
+  const pastFinalEpisode = media.status === "FINISHED" && Number.isFinite(totalEpisodes) && episode > totalEpisodes;
+
+  if (!notYetReleased && !hasNotAired && !pastFinalEpisode) return null;
+
+  return json({
+    error: `Episode ${episode} is not available for AniList ${anilistId}`,
+    code: "EPISODE_NOT_AIRED",
+    status: media.status,
+    nextEpisode: Number.isFinite(nextEpisode) ? nextEpisode : null,
+  }, 404);
+}
+
+async function guardedWatch(anilistId, episodeNumber, handlerFn) {
+  const unavailable = await unavailableEpisodeResponse(anilistId, episodeNumber);
+  if (unavailable) return unavailable;
+  return handlerFn();
+}
+
+function cachedProviderWatch(cacheKey, anilistId, episodeNumber, handlerFn, ttl = WATCH_TTL) {
+  return cachedWatch(
+    cacheKey,
+    () => guardedWatch(anilistId, episodeNumber, handlerFn),
+    ttl,
+  );
 }
 
 export default {
@@ -113,9 +161,11 @@ export default {
       }
 
       try {
-        const data = await getFilteredEpisodesResponse(anilistId, resolved, includeMap);
-        if (unknown.length) data._unknownProviders = unknown;
-        return json(data);
+        return edgeCached(request, async () => {
+          const data = await getFilteredEpisodesResponse(anilistId, resolved, includeMap);
+          if (unknown.length) data._unknownProviders = unknown;
+          return json(data);
+        });
       } catch (e) {
         return json({ error: e.message }, 500);
       }
@@ -125,7 +175,7 @@ export default {
     if (m) {
       const anilistId = m[1];
       try {
-        return json(await getEpisodesResponse(anilistId, env));
+        return edgeCached(request, async () => json(await getEpisodesResponse(anilistId, env)));
       } catch (e) {
         return json({ error: e.message }, 500);
       }
@@ -134,8 +184,10 @@ export default {
     m = path.match(/^\/watch\/mkissa\/(\d+)\/(sub|dub)\/mkissa-(\d+)\/?$/);
     if (m) {
       const [, id, audio, ep] = m;
-      return cachedWatch(
+      return cachedProviderWatch(
         `watch:mkissa:${id}:${audio}:${ep}`,
+        id,
+        ep,
         () => mkissaHandler.fetch(request)
       );
     }
@@ -147,8 +199,10 @@ export default {
     m = path.match(/^\/watch\/reanime\/(\d+)\/(sub|dub)\/reanime-(\d+)\/?$/);
     if (m) {
       const [, id, audio, ep] = m;
-      return cachedWatch(
+      return cachedProviderWatch(
         `watch:reanime:${id}:${audio}:${ep}`,
+        id,
+        ep,
         () => reanimeHandler.fetch(rewriteRequest(request, `/watch/${id}/${audio}/${ep}`))
       );
     }
@@ -162,8 +216,10 @@ export default {
     m = path.match(/^\/watch\/anikoto\/(\d+)\/(sub|dub)\/anikoto-(\d+)\/?$/);
     if (m) {
       const [, id, audio, ep] = m;
-      return cachedWatch(
+      return cachedProviderWatch(
         `watch:anikoto:${id}:${audio}:${ep}`,
+        id,
+        ep,
         () => anikotoHandler.fetch(request),
         SIGNED_STREAM_WATCH_TTL
       );
@@ -172,8 +228,10 @@ export default {
     m = path.match(/^\/watch\/animegg\/(\d+)\/(sub|dub)\/animegg-(\d+)\/?$/);
     if (m) {
       const [, id, audio, ep] = m;
-      return cachedWatch(
+      return cachedProviderWatch(
         `watch:animegg:${id}:${audio}:${ep}`,
+        id,
+        ep,
         () => animeggHandler.fetch(request)
       );
     }
@@ -181,8 +239,10 @@ export default {
     m = path.match(/^\/watch\/anineko\/(\d+)\/(sub|dub)\/anineko-(\d+)\/?$/);
     if (m) {
       const [, id, audio, ep] = m;
-      return cachedWatch(
+      return cachedProviderWatch(
         `watch:anineko:${id}:${audio}:${ep}`,
+        id,
+        ep,
         () => aninekoHandler.fetch(request)
       );
     }
@@ -190,17 +250,22 @@ export default {
     m = path.match(/^\/watch\/anidbapp\/(\d+)\/(sub|dub)\/anidbapp-(\d+)\/?$/);
     if (m) {
       const [, id, audio, ep] = m;
-      return cachedWatch(
+      return cachedProviderWatch(
         `watch:anidbapp:${id}:${audio}:${ep}`,
+        id,
+        ep,
         () => anidbappHandler.fetch(request)
       );
     }
 
+
     m = path.match(/^\/watch\/animenosub\/(\d+)\/(sub|dub)\/animenosub-(\d+)\/?$/);
     if (m) {
       const [, id, audio, ep] = m;
-      return cachedWatch(
+      return cachedProviderWatch(
         `watch:animenosub:${id}:${audio}:${ep}`,
+        id,
+        ep,
         () => animenosubHandler.fetch(request)
       );
     }
@@ -208,8 +273,10 @@ export default {
     m = path.match(/^\/watch\/anizone\/(\d+)\/(sub|dub)\/anizone-(\d+)\/?$/);
     if (m) {
       const [, id, audio, ep] = m;
-      return cachedWatch(
+      return cachedProviderWatch(
         `watch:anizone:${id}:${audio}:${ep}`,
+        id,
+        ep,
         () => anizoneHandler.fetch(request)
       );
     }
@@ -217,8 +284,10 @@ export default {
     m = path.match(/^\/watch\/aniwaves\/(\d+)\/(sub|dub)\/aniwaves-(\d+)\/?$/);
     if (m) {
       const [, id, audio, ep] = m;
-      return cachedWatch(
+      return cachedProviderWatch(
         `watch:aniwaves:${id}:${audio}:${ep}`,
+        id,
+        ep,
         () => aniwavesHandler.fetch(request)
       );
     }
@@ -226,8 +295,10 @@ export default {
     m = path.match(/^\/watch\/anibd\/(\d+)\/(sub|dub)\/anibd-(\d+)\/?$/);
     if (m) {
       const [, id, audio, ep] = m;
-      return cachedWatch(
+      return cachedProviderWatch(
         `watch:anibd:${id}:${audio}:${ep}`,
+        id,
+        ep,
         () => anibdHandler.fetch(request)
       );
     }
@@ -235,8 +306,10 @@ export default {
     m = path.match(/^\/watch\/senshi\/(\d+)\/(sub|dub)\/senshi-(\d+)\/?$/);
     if (m) {
       const [, id, audio, ep] = m;
-      return cachedWatch(
+      return cachedProviderWatch(
         `watch:senshi:${id}:${audio}:${ep}`,
+        id,
+        ep,
         () => senshiHandler.fetch(request),
         SIGNED_STREAM_WATCH_TTL
       );
@@ -245,8 +318,10 @@ export default {
     m = path.match(/^\/watch\/kaa\/(\d+)\/(sub|dub)\/kaa-(\d+)\/?$/);
     if (m) {
       const [, id, audio, ep] = m;
-      return cachedWatch(
+      return cachedProviderWatch(
         `watch:kaa:${id}:${audio}:${ep}`,
+        id,
+        ep,
         () => kaaHandler.fetch(request)
       );
     }
@@ -254,8 +329,10 @@ export default {
     m = path.match(/^\/watch\/animedunya\/(\d+)\/(sub|dub)\/animedunya-(\d+)\/?$/);
     if (m) {
       const [, id, audio, ep] = m;
-      return cachedWatch(
+      return cachedProviderWatch(
         `watch:animedunya:${id}:${audio}:${ep}`,
+        id,
+        ep,
         () => animedunyaHandler.fetch(request)
       );
     }
@@ -263,8 +340,10 @@ export default {
     m = path.match(/^\/watch\/animeonsen\/(\d+)\/(sub|dub)\/animeonsen-(\d+)\/?$/);
     if (m) {
       const [, id, audio, ep] = m;
-      return cachedWatch(
+      return cachedProviderWatch(
         `watch:animeonsen:${id}:${audio}:${ep}`,
+        id,
+        ep,
         () => animeonsenHandler.fetch(request)
       );
     }

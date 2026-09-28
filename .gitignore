@@ -1,5 +1,8 @@
 node_modules/
-.env
+.env*
+!.env.example
+.vercel/
+.wrangler/
 core/.cache/
 providers/2dhive.js
 extractors/babastream.js
