@@ -15,6 +15,7 @@ import kaaHandler                  from "./providers/kickassanime.js";
 import animedunyaHandler           from "./providers/animedunya.js";
 import animeonsenHandler           from "./providers/animeonsen.js";
 import { getEpisodesResponse, getFilteredEpisodesResponse } from "./core/episode-cache.js";
+import { handleAnilistProxy } from "./core/anilist-proxy.js";
 import { resolveProviders }         from "./core/episode-strategy.js";
 import { getAsync, setAsync, isFresh, mapTTL, WATCH_TTL, _CACHE_ENABLED } from "./core/smartcache.js";
 
@@ -127,6 +128,10 @@ export default {
           "Access-Control-Allow-Headers": "*",
         },
       });
+    }
+
+    if (path === "/anilist" && request.method === "POST") {
+      return handleAnilistProxy(request, env);
     }
 
     let m = path.match(/^\/map\/(\d+)\/?$/);
