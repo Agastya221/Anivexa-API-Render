@@ -126,3 +126,63 @@ export async function handleAnilistProxy(request, env) {
     return reply({ error: `AniList request failed: ${error?.message || "unknown error"}` }, 502);
   }
 }
+
+// POST /anilist/token — authenticated relay for AniList's OAuth token exchange.
+//
+// Signing in with AniList ends with the site's server swapping the one-time `code` for an
+// access token at anilist.co. From a Cloudflare Worker that request is blocked for the same
+// reason as the GraphQL ones above, so the sign-in fails. The Worker sends it here instead.
+//
+// Same protection as /anilist: the shared `x-proxy-key` is required. On top of that this only
+// forwards the authorization-code grant, with exactly the fields that grant uses, so it cannot
+// be used as a general-purpose relay to anilist.co.
+const ANILIST_TOKEN_URL = "https://anilist.co/api/v2/oauth/token";
+const TOKEN_FIELDS = ["grant_type", "client_id", "client_secret", "redirect_uri", "code"];
+
+export async function handleAnilistTokenProxy(request, env) {
+  const secret = readEnv(env, "ANILIST_PROXY_KEY");
+  if (!secret) return reply({ error: "AniList proxy is not configured" }, 503);
+
+  const provided = request.headers.get("x-proxy-key") || "";
+  if (!provided || !(await sameSecret(provided, secret))) return reply({ error: "Unauthorized" }, 401);
+
+  const raw = await request.text();
+  if (raw.length > 4 * 1024) return reply({ error: "Request too large" }, 413);
+
+  // Auth.js sends the form-encoded body OAuth specifies; accept JSON as well.
+  let fields;
+  try {
+    const type = request.headers.get("content-type") || "";
+    fields = type.includes("application/json")
+      ? JSON.parse(raw)
+      : Object.fromEntries(new URLSearchParams(raw));
+  } catch {
+    return reply({ error: "Invalid body" }, 400);
+  }
+  if (!fields || typeof fields !== "object" || fields.grant_type !== "authorization_code") {
+    return reply({ error: "Only the authorization_code grant is relayed" }, 400);
+  }
+  const body = new URLSearchParams();
+  for (const name of TOKEN_FIELDS) {
+    if (typeof fields[name] === "string" && fields[name]) body.set(name, fields[name]);
+  }
+  if (!body.get("code") || !body.get("client_id") || !body.get("redirect_uri")) {
+    return reply({ error: "Missing code, client_id or redirect_uri" }, 400);
+  }
+
+  try {
+    const upstream = await fetch(ANILIST_TOKEN_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/json",
+        "User-Agent": "Tatakai-AniList-Proxy/1.0",
+      },
+      body,
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+    });
+    return reply(await upstream.text(), upstream.status);
+  } catch (error) {
+    return reply({ error: `AniList token request failed: ${error?.message || "unknown error"}` }, 502);
+  }
+}
