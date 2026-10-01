@@ -243,3 +243,8 @@ export function mapTTL(status) {
 export const WATCH_TTL         = 3 * HOUR;
 export const SHOW_IDENTITY_TTL = 24 * HOUR;
 export const THIRTY_DAYS       = 30 * DAY;
+
+// Raw Redis access for stores that must not go through the memory/disk layers above
+// (core/linkstore.js). Resolves to null when Redis is not configured or the call fails.
+export const redisRaw = (command) => redisCommand(command).catch(() => null);
+export const redisConfigured = () => REDIS_ENABLED;

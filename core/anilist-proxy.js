@@ -186,3 +186,15 @@ export async function handleAnilistTokenProxy(request, env) {
     return reply({ error: `AniList token request failed: ${error?.message || "unknown error"}` }, 502);
   }
 }
+
+// Shared by the other proxy routes (core/linkstore.js): null when the request carries the
+// right x-proxy-key, otherwise the error response to send.
+export async function authorizeProxyRequest(request, env) {
+  const secret = readEnv(env, "ANILIST_PROXY_KEY");
+  if (!secret) return reply({ error: "Proxy is not configured" }, 503);
+  const provided = request.headers.get("x-proxy-key") || "";
+  if (!provided || !(await sameSecret(provided, secret))) return reply({ error: "Unauthorized" }, 401);
+  return null;
+}
+
+export { reply as proxyReply };

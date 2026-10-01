@@ -17,6 +17,7 @@ import animedunyaHandler           from "./providers/animedunya.js";
 import animeonsenHandler           from "./providers/animeonsen.js";
 import { getEpisodesResponse, getFilteredEpisodesResponse } from "./core/episode-cache.js";
 import { handleAnilistProxy, handleAnilistTokenProxy } from "./core/anilist-proxy.js";
+import { handleLinkStore } from "./core/linkstore.js";
 import { resolveProviders }         from "./core/episode-strategy.js";
 import { getAsync, setAsync, isFresh, mapTTL, WATCH_TTL, _CACHE_ENABLED } from "./core/smartcache.js";
 
@@ -152,6 +153,10 @@ async function handleRequest(request, env) {
 
     if (path === "/anilist/token" && request.method === "POST") {
       return handleAnilistTokenProxy(request, env);
+    }
+
+    if (path === "/linkstore" && request.method === "POST") {
+      return handleLinkStore(request, env);
     }
 
     let m = path.match(/^\/map\/(\d+)\/?$/);
