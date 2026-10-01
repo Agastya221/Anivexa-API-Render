@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { getMedia }                from "./core/anilist.js";
 import { mapAnimeIds }             from "./core/mapper.js";
 import mkissaHandler               from "./providers/mkissa.js";
@@ -50,11 +51,18 @@ function rewriteRequest(request, newPath) {
 const watchInflight = new Map();
 const SIGNED_STREAM_WATCH_TTL = 60_000;
 
+// `?fresh=1` on a /watch request: skip the stored copy and fetch a new one (which then replaces
+// it). The site uses this when a stream link stopped working and was refreshed; without it the
+// refresh would be handed the same cached (dead) link for up to WATCH_TTL.
+const requestContext = new AsyncLocalStorage();
+const wantsFresh = () => requestContext.getStore()?.fresh === true;
+
 async function cachedWatch(cacheKey, handlerFn, ttl = WATCH_TTL) {
-  const entry = await getAsync(cacheKey);
+  const fresh = wantsFresh();
+  const entry = fresh ? null : await getAsync(cacheKey);
   if (entry && isFresh(entry)) return json(entry.data);
 
-  if (watchInflight.has(cacheKey)) {
+  if (!fresh && watchInflight.has(cacheKey)) {
     await watchInflight.get(cacheKey).catch(() => {});
     const warm = await getAsync(cacheKey);
     if (warm && isFresh(warm)) return json(warm.data);
@@ -72,6 +80,7 @@ async function cachedWatch(cacheKey, handlerFn, ttl = WATCH_TTL) {
     return response;
   })();
 
+  if (fresh) return promise;
   watchInflight.set(cacheKey, promise);
   try   { return await promise; }
   finally { watchInflight.delete(cacheKey); }
@@ -115,7 +124,14 @@ function cachedProviderWatch(cacheKey, anilistId, episodeNumber, handlerFn, ttl 
 }
 
 export default {
-  async fetch(request, env) {
+  fetch(request, env) {
+    const fresh = new URL(request.url).searchParams.get("fresh") === "1";
+    return requestContext.run({ fresh }, () => handleRequest(request, env));
+  },
+};
+
+async function handleRequest(request, env) {
+  {
     const url  = new URL(request.url);
     const path = url.pathname;
 
@@ -397,5 +413,5 @@ export default {
         "/watch/animeonsen/:id/sub|dub/animeonsen-:ep",
       ],
     });
-  },
-};
+  }
+}
