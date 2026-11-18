@@ -11,7 +11,8 @@ import {
 } from "../core/new-provider-utils.js";
 import { get, set, isFresh, SHOW_IDENTITY_TTL } from "../core/smartcache.js";
 
-const BASE = "https://aniwaves.ru";
+// aniwaves.ru now only redirects to aniwaves.tv (2026-11); ANIWAVES_BASE overrides it.
+const BASE = (process.env.ANIWAVES_BASE || "https://aniwaves.tv").replace(/\/+$/, "");
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36";
 
 function escapeRegex(value) {
@@ -183,10 +184,13 @@ async function resolveSeries(anilistId, ctx = {}) {
   const titles = buildTitles(media, ctx.anizip);
   const expected = expectedCount(media, ctx.anizip);
   const discovered = new Map();
+  const searchErrors = [];
   await Promise.all(searchQueries(titles).map(async (query) => {
     try {
       for (const candidate of await search(query)) if (!discovered.has(candidate.slug)) discovered.set(candidate.slug, candidate);
-    } catch {}
+    } catch (error) {
+      searchErrors.push(String(error?.message || error).slice(0, 80));
+    }
   }));
   const shortlist = [...discovered.values()]
     .map((candidate) => ({ candidate, score: candidateTitleScore(titles, candidate) }))
@@ -203,7 +207,9 @@ async function resolveSeries(anilistId, ctx = {}) {
   const selected = valid[0];
   const runnerUp = valid[1];
   if (!selected || (selected.score < 0.82 && !selected.partOrdinal) || (runnerUp && selected.score - runnerUp.score < 0.08)) {
-    throw new Error(`AniWaves match not confident for AniList ${anilistId}`);
+    // Say what the searches saw: a blocked or redirected site looks the same as "no match".
+    const seen = `${discovered.size} candidates, ${valid.length} valid` + (searchErrors.length ? `, search errors: ${[...new Set(searchErrors)].slice(0, 2).join(" | ")}` : "");
+    throw new Error(`AniWaves match not confident for AniList ${anilistId} (${seen})`);
   }
   const data = {
     siteId: selected.siteId,
