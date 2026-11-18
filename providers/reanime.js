@@ -1,7 +1,7 @@
 const __name = (fn, _) => fn;
 import { getMedia } from '../core/anilist.js';
 import { extractFlixcloud } from "../extractors/index.js";
-import { buildTitles } from '../core/new-provider-utils.js';
+import { buildTitleSearchQueries, buildTitles } from '../core/new-provider-utils.js';
 import { get as cacheGet, set as cacheSet, isFresh as cacheIsFresh, SHOW_IDENTITY_TTL } from '../core/smartcache.js';
 
 var BASE = "https://reanime.to";
@@ -20,6 +20,15 @@ async function searchReanime(query, genre = null) {
   return Array.isArray(data?.results) ? data.results : [];
 }
 __name(searchReanime, "searchReanime");
+function reportsNoEpisodes(candidate) {
+  const counts = [
+    candidate?.subbed,
+    candidate?.dubbed,
+    candidate?.episodes
+  ].filter(Number.isFinite);
+  return counts.length > 0 && counts.every((count) => count <= 0);
+}
+__name(reportsNoEpisodes, "reportsNoEpisodes");
 async function fetchAnimeDetail(animeId) {
   const res = await fetch(`${BASE}/api/v1/anime/${animeId}`, { headers: H });
   if (!res.ok) return null;
@@ -38,44 +47,30 @@ function extractAnilistIdFromCover(coverImage) {
 }
 __name(extractAnilistIdFromCover, "extractAnilistIdFromCover");
 async function resolveSeries(anilistId, ctx = {}) {
-  const cacheKey = `np:reanime:${anilistId}`;
+  const cacheKey = `np:match3:reanime:${anilistId}`;
   const cached = cacheGet(cacheKey);
   if (cacheIsFresh(cached)) return cached.data;
 
   const media = ctx.media ?? await getMedia(anilistId);
   const malId = media?.idMal ?? null;
-  const queries = buildTitles(media, ctx.anizip).slice(0, 5);
-  const searchQueries = queries.map((query) => ({ query, genre: null }));
+  const queries = buildTitleSearchQueries(buildTitles(media, ctx.anizip), 16);
+  const searchRequests = queries.map((query) => searchReanime(query));
   if (media?.genres?.includes("Hentai")) {
-    searchQueries.push(...queries.map((query) => ({ query, genre: "Hentai" })));
+    searchRequests.push(...queries.map((query) => searchReanime(query, "Hentai")));
   }
 
   const candidates = new Map();
-  const searchErrors = [];
-  await Promise.all(searchQueries.map(async ({ query, genre }) => {
-    let results = [];
-    try {
-      results = await searchReanime(query, genre);
-    } catch (error) {
-      const raw = typeof error?.rawBody === "string"
-        ? error.rawBody.replace(/\s+/g, " ").slice(0, 160)
-        : "";
-      searchErrors.push(`${query}: ${error?.message ?? "search failed"}${raw ? ` (${raw})` : ""}`);
-    }
-    for (const r of results) {
+  await Promise.all(searchRequests.map(async (request) => {
+    for (const r of await request.catch(() => [])) {
       if (r?.anime_id && !candidates.has(r.anime_id)) candidates.set(r.anime_id, r);
     }
   }));
 
-  if (!candidates.size && searchErrors.length) {
-    throw new Error(`ReAnime search failed: ${searchErrors[0]}`);
-  }
-
-  // Fast pass: AniList CDN cover URLs embed the AniList ID as bx{id}-*.
-  // If a candidate's cover image already confirms our ID we can skip detail fetches entirely.
+  // Fast pass: AniList CDN covers embed the AniList ID as bx{id}-*.
+  // Ignore empty aliases so a populated duplicate can be resolved in the detail pass.
   for (const [id, r] of candidates) {
     const coverId = extractAnilistIdFromCover(r.cover_image);
-    if (coverId && coverId === Number(anilistId)) {
+    if (coverId && coverId === Number(anilistId) && !reportsNoEpisodes(r)) {
       const data = {
         animeId: id,
         title: r.title?.english || r.title?.romaji || id,
@@ -102,7 +97,11 @@ async function resolveSeries(anilistId, ctx = {}) {
   );
 
   for (const { id, detail } of details) {
-    if (detail?.anilist_id && Number(detail.anilist_id) === Number(anilistId)) {
+    if (
+      detail?.anilist_id &&
+      Number(detail.anilist_id) === Number(anilistId) &&
+      !reportsNoEpisodes(candidates.get(id))
+    ) {
       const data = {
         animeId: id,
         title: detail.title?.english || detail.title?.romaji || candidates.get(id)?.title?.english || id,
@@ -122,7 +121,11 @@ async function resolveSeries(anilistId, ctx = {}) {
   if (malId) {
     for (const { id, detail } of details) {
       const detailMal = detail?.mal_id;
-      if (detailMal && Number(detailMal) === Number(malId)) {
+      if (
+        detailMal &&
+        Number(detailMal) === Number(malId) &&
+        !reportsNoEpisodes(candidates.get(id))
+      ) {
         const data = {
           animeId: id,
           title: detail.title?.english || detail.title?.romaji || id,
@@ -200,76 +203,12 @@ async function handleEpisodes3(anilistId, url) {
   });
 }
 __name(handleEpisodes3, "handleEpisodes");
-async function decryptServers(servers) {
-  const seenServers = new Set();
-  const uniqueServers = servers.filter((server) => {
-    const key = `${server.serverName}:${server.dataType}:${server.dataLink}`;
-    if (seenServers.has(key)) return false;
-    seenServers.add(key);
-    return true;
-  });
-  const decrypted = await Promise.all(uniqueServers.map(async (server, index) => {
-    try {
-      const embedRes = await fetch(server.dataLink, { headers: { ...H, Referer: `${BASE}/` } });
-      if (!embedRes.ok) throw new Error(`Embed fetch failed: ${embedRes.status}`);
-      const stream = await extractFlixcloud(await embedRes.text(), { apiBase: FLIX, headers: H, referer: `${BASE}/` });
-      return { server, stream, index };
-    } catch (error) {
-      return { server, error: error.message, index };
-    }
-  }));
-  return {
-    servers: uniqueServers,
-    streams: decrypted.filter((item) => item.stream?.url),
-    failedServers: decrypted.filter((item) => item.error),
-  };
-}
-
 async function resolveStream3(anilistId, audio, ep) {
-  const order = { "HD-1": 0, "HD-2": 1 };
-  const byPrio = (arr) => arr.slice().sort((a, b) => (order[a.serverName] ?? 9) - (order[b.serverName] ?? 9));
-  const audioTypes = audio === "sub" ? ["sub", "s-sub"] : ["dub", "s-dub"];
-
-  // ReAnime's title-search endpoint challenges datacenter IPs, while its
-  // AniList-keyed Flix route can resolve the episode without a slug lookup.
-  // Prefer that direct route so edge/serverless deployments can still play.
-  let directFlix = null;
-  try {
-    directFlix = await fetch(`${BASE}/api/flix/${anilistId}/${ep}`, { headers: H }).then(async (r) => {
-      const raw = await r.text();
-      if (!r.ok) {
-        const error = new Error(`flix ${r.status}`);
-        error.rawBody = raw;
-        throw error;
-      }
-      return JSON.parse(raw);
-    });
-  } catch {
-    directFlix = null;
-  }
-
-  if (directFlix?.success && Array.isArray(directFlix.servers)) {
-    const servers = byPrio(directFlix.servers.filter((s) => audioTypes.includes(s.dataType)));
-    if (servers.length) {
-      const decoded = await decryptServers(servers);
-      if (decoded.streams.length) {
-        const media = await getMedia(anilistId).catch(() => null);
-        const title2 = media?.title?.english || media?.title?.romaji || `AniList ${anilistId}`;
-        return {
-          title: title2,
-          slug: null,
-          watchData: null,
-          stream: decoded.streams[0].stream,
-          server: decoded.streams[0].server.serverName,
-          ...decoded,
-        };
-      }
-    }
-  }
-
   const series = await resolveSeries(anilistId);
   const title2 = series.title;
   const slug = series.animeId;
+  const order = { "HD-2": 0, "HD-1": 1 };
+  const byPrio = (arr) => arr.slice().sort((a, b) => (order[a.serverName] ?? 9) - (order[b.serverName] ?? 9));
   const [watchRes, flixRes] = await Promise.allSettled([
     fetch(`${BASE}/api/watch/${slug}/${ep}`, { headers: H }).then(async (r) => {
       const _raw = await r.text();
@@ -291,21 +230,32 @@ async function resolveStream3(anilistId, audio, ep) {
       if (!seen.has(s["$id"])) links.push(s);
     }
   }
+  const audioTypes = audio === "sub" ? ["sub", "s-sub"] : ["dub", "s-dub"];
   const servers = byPrio(links.filter((s) => audioTypes.includes(s.dataType)));
   if (!servers.length) throw Object.assign(new Error(`No ${audio} servers for "${title2}" ep ${ep}`), { status: 404 });
-  const decoded = await decryptServers(servers);
-  if (!decoded.streams.length) {
-    const error = decoded.failedServers[0]?.error || "No decrypted streams";
+  const seenServers = new Set();
+  const uniqueServers = servers.filter((s) => {
+    const key = `${s.serverName}:${s.dataType}:${s.dataLink}`;
+    if (seenServers.has(key)) return false;
+    seenServers.add(key);
+    return true;
+  });
+  const decrypted = await Promise.all(uniqueServers.map(async (server, index) => {
+    try {
+      const embedRes = await fetch(server.dataLink, { headers: { ...H, Referer: `${BASE}/` } });
+      if (!embedRes.ok) throw new Error(`Embed fetch failed: ${embedRes.status}`);
+      const stream = await extractFlixcloud(await embedRes.text(), { apiBase: FLIX, headers: H, referer: `${BASE}/` });
+      return { server, stream, index };
+    } catch (error) {
+      return { server, error: error.message, index };
+    }
+  }));
+  const streams = decrypted.filter((item) => item.stream?.url);
+  if (!streams.length) {
+    const error = decrypted.find((item) => item.error)?.error || "No decrypted streams";
     throw Object.assign(new Error(error), { status: 502 });
   }
-  return {
-    title: title2,
-    slug,
-    watchData,
-    stream: decoded.streams[0].stream,
-    server: decoded.streams[0].server.serverName,
-    ...decoded,
-  };
+  return { title: title2, slug, watchData, stream: streams[0].stream, server: streams[0].server.serverName, servers: uniqueServers, streams, failedServers: decrypted.filter((item) => item.error) };
 }
 __name(resolveStream3, "resolveStream");
 async function handleWatch3(anilistId, audio, epNum, origin) {

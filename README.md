@@ -4,13 +4,13 @@
 <img src="docs/logo.svg" width="80" height="80"/>
 
 
-# Anivexa API 2.2.1
+# Anivexa API
 
 **Anime streaming aggregator API — one endpoint, all your sources.**
 
 ![Views](https://visitor-badge.laobi.icu/badge?page_id=walterwhite-69.Anivexa-API)
-[![Discord](https://img.shields.io/badge/Join%20Discord-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/MARQ9z9QSX)
 [![GitHub stars](https://img.shields.io/github/stars/walterwhite-69/Anivexa-API?style=flat-square&color=yellow)](https://github.com/walterwhite-69/Anivexa-API/stargazers)
+
 
 </div>
 
@@ -20,8 +20,6 @@
 
 A single API that aggregates anime episode lists and streaming links from multiple providers. Give it an AniList ID, get back everything — episodes, sources, and stream URLs — all in one place.
 
-It's the backbone powering **[Anivexa](https://github.com/walterwhite-69/Anivexa)**, a full anime streaming client built on top of this.
-
 ## Notice!
 ***This API intentionally uses AniList as its catalog and identity layer. When AniList is unavailable, the API may be partially unavailable or unstable as well. If you do not want an AniList-backed catalog, this simply is not the API for your use case!. So dont bother using it.***
 
@@ -29,20 +27,22 @@ It's the backbone powering **[Anivexa](https://github.com/walterwhite-69/Anivexa
 
 ## Providers
 
-| Provider | Status | Notes |
-|---|---|---|
-| **MKissa** | ✅ Active | Large Library, Note: it may still return 403 error, their backend is one of the trickiest, it works fine but sometimes return "Need Captcha" Error. It might be slow since it will retry if it gets captcha error while requesting|
-| **Reanime** | ✅ Active | Solid source for a wide range of titles |
-| **AniKoto** | ✅ Active | Good library, consistent |
-| **AnimeGG** | ✅ Active | Fuzzy title matching + compact-query fix for sequels (e.g. Re:Zero S4) |
-| **AniNeko** | ✅ Active | Reliable slug-based matching |
-| **AniDB App** | ✅ Active | Language-aware, AniDB ID backed |
-| **AniZone** | ✅ Active | HLS + subtitles, sub-only; year-based re-scoring prevents wrong-season matches |
-| **AniWaves** | ✅ Active | Direct HLS from Vidplay, MyCloud, and BYFMS; DATASV quality MP4 sources; embed fallbacks |
-| **Anibd** | ✅ Active | Uses Anilist ID internally; AniList ID used everywhere else |
-| **Kickassanime** | ✅ Active | Fuzzy search, medium library |
-| **AnimeDunya** | ✅ Active | HLS + subtitles, sub-only, MAL ID backed |
-| **AnimeOnsen** | ✅ Active | DASH + subtitles, sub-only, AniList/MAL identity verified |
+All listed providers are active. Coverage and stream availability vary by title.
+
+| Provider | Highlights |
+|---|---|
+| **MKissa** | Large catalog; captcha retries can slow requests |
+| **Reanime** | Broad catalog |
+| **AniKoto** | Broad catalog |
+| **AnimeGG** | Fuzzy title matching |
+| **AnimeNoSub** | Sub and dub episodes |
+| **AniZone** | Sub, HLS, and subtitles |
+| **AniWaves** | HLS, MP4, and embed fallbacks |
+| **Senshi** | Episode mapping and streams |
+| **Kickassanime** | Fuzzy title matching |
+| **AnimeDunya** | MAL-backed; sub, HLS, and subtitles |
+| **AnimeOnsen** | AniList/MAL matching; sub, DASH, and subtitles |
+| **Ani.pm** | Soft-sub and hard-sub variants |
 
 ---
 
@@ -211,9 +211,6 @@ Copy `.env.example` to `.env` and fill in the values.
 | `UPSTASH_REDIS_REST_TOKEN` | — | From [upstash.com](https://upstash.com). Only used when `CACHE_ENABLED=true`. |
 | `DEFAULT_REDIS_TTL` | `900` | Seconds. Fallback expiry for Redis writes when a per-item TTL isn't computed. Most cache entries use their own smart TTLs based on anime status (finished/airing/etc.) — this is just the safety-net default. |
 | `PORT` | `4000` | Local dev server port (`server.js` only — ignored on Vercel/serverless). Change it if `4000` is already in use, then hit `http://localhost:PORT`. |
-| `MKISSA_WREQ_BROWSER` | `chrome_149` | wreq-js browser TLS and HTTP/2 profile used for MKissa requests. |
-| `MKISSA_WREQ_OS` | `windows` | Operating-system profile paired with the MKissa browser profile. |
-| `MKISSA_WREQ_REQUIRED` | `false` | Set to `1` to return a wreq-js error instead of falling back to Node fetch when its native binding is unavailable. |
 
 On Vercel (or Railway/Render), set these as regular project environment variables instead of committing `.env`.
 
@@ -229,7 +226,7 @@ After deployment, set `ANIVEXA_API_BASE_URL` in the anime website to the service
 
 ## Deploying on Vercel
 
-> ⚠️ **Not recommended.** Vercel runs on shared datacenter IPs that are widely blocked by anime streaming sites. Most providers will fail silently or return errors — the API will technically run but you'll get little to no data back. Use a self-hosted VPS or use railway, render etc etc. The proxy file is for anidb app not for streams!
+> ⚠️ **Not recommended.** Vercel runs on shared datacenter IPs that are widely blocked by anime streaming sites. Most providers will fail silently or return errors — the API will technically run but you'll get little to no data back. Use a self-hosted VPS or use railway, render etc etc.
 
 ---
 
@@ -237,12 +234,11 @@ After deployment, set `ANIVEXA_API_BASE_URL` in the anime website to the service
 
 > **Only request providers that self-host their content. No scrapers of third-party sites.**
 
-Got a provider you'd like added? Open an issue or drop it in the Discord.
+Got a provider you'd like added? Open an issue.
 
 This project is community-kept-alive — if it helps you, please:
 
 - ⭐ **Star the repo** so others can find it
-- 💬 **[Join the Discord](https://discord.gg/MARQ9z9QSX)** to discuss, report issues, or suggest providers
 - 🛠️ **Open a PR** if you want to add or fix something
 
 ---
@@ -250,7 +246,5 @@ This project is community-kept-alive — if it helps you, please:
 <div align="center">
 
 hope it helped :3
-
-[![Discord](https://img.shields.io/badge/Join%20the%20community-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/MARQ9z9QSX)
 
 </div>

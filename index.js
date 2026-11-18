@@ -5,16 +5,14 @@ import mkissaHandler               from "./providers/mkissa.js";
 import reanimeHandler              from "./providers/reanime.js";
 import anikotoHandler              from "./providers/anikoto.js";
 import animeggHandler              from "./providers/animegg.js";
-import aninekoHandler              from "./providers/anineko.js";
-import anidbappHandler             from "./providers/anidbapp.js";
 import animenosubHandler           from "./providers/animenosub.js";
 import anizoneHandler              from "./providers/anizone.js";
 import aniwavesHandler             from "./providers/aniwaves.js";
-import anibdHandler                from "./providers/anibd.js";
 import senshiHandler               from "./providers/senshi.js";
 import kaaHandler                  from "./providers/kickassanime.js";
 import animedunyaHandler           from "./providers/animedunya.js";
 import animeonsenHandler           from "./providers/animeonsen.js";
+import anipmHandler                from "./providers/anipm.js";
 import { getEpisodesResponse, getFilteredEpisodesResponse } from "./core/episode-cache.js";
 import { handleAnilistProxy, handleAnilistTokenProxy } from "./core/anilist-proxy.js";
 import { handleLinkStore } from "./core/linkstore.js";
@@ -266,29 +264,6 @@ async function handleRequest(request, env) {
       );
     }
 
-    m = path.match(/^\/watch\/anineko\/(\d+)\/(sub|dub)\/anineko-(\d+)\/?$/);
-    if (m) {
-      const [, id, audio, ep] = m;
-      return cachedProviderWatch(
-        `watch:anineko:${id}:${audio}:${ep}`,
-        id,
-        ep,
-        () => aninekoHandler.fetch(request)
-      );
-    }
-
-    m = path.match(/^\/watch\/anidbapp\/(\d+)\/(sub|dub)\/anidbapp-(\d+)\/?$/);
-    if (m) {
-      const [, id, audio, ep] = m;
-      return cachedProviderWatch(
-        `watch:anidbapp:${id}:${audio}:${ep}`,
-        id,
-        ep,
-        () => anidbappHandler.fetch(request)
-      );
-    }
-
-
     m = path.match(/^\/watch\/animenosub\/(\d+)\/(sub|dub)\/animenosub-(\d+)\/?$/);
     if (m) {
       const [, id, audio, ep] = m;
@@ -319,17 +294,6 @@ async function handleRequest(request, env) {
         id,
         ep,
         () => aniwavesHandler.fetch(request)
-      );
-    }
-
-    m = path.match(/^\/watch\/anibd\/(\d+)\/(sub|dub)\/anibd-(\d+)\/?$/);
-    if (m) {
-      const [, id, audio, ep] = m;
-      return cachedProviderWatch(
-        `watch:anibd:${id}:${audio}:${ep}`,
-        id,
-        ep,
-        () => anibdHandler.fetch(request)
       );
     }
 
@@ -378,24 +342,34 @@ async function handleRequest(request, env) {
       );
     }
 
+    m = path.match(/^\/watch\/anipm\/(\d+)\/(sub|dub)\/anipm-(\d+)\/?$/);
+    if (m) {
+      const [, id, audio, ep] = m;
+      return cachedWatch(
+        `watch:anipm:${id}:${audio}:${ep}`,
+        () => anipmHandler.fetch(request),
+        SIGNED_STREAM_WATCH_TTL
+      );
+    }
+
+    if (path.startsWith("/watch/")) return json({ error: "Not found" }, 404);
+
     return json({
-      name: "Anivexa API 2.2.1",
+      name: `Anivexa API ${env?.API_VERSION ?? "unknown"}`,
       cache: _CACHE_ENABLED,
       providers: [
         "mkissa",
         "reanime",
         "anikoto",
         "animegg",
-        "anineko",
-        "anidbapp",
         "animenosub",
         "anizone",
         "aniwaves",
-        "anibd",
         "senshi",
         "kaa",
         "animedunya",
         "animeonsen",
+        "anipm",
       ],
       routes: [
         "/map/:anilistId",
@@ -406,16 +380,14 @@ async function handleRequest(request, env) {
         "/stream/reanime/:id/sub|dub/:ep",
         "/watch/anikoto/:id/sub|dub/anikoto-:ep",
         "/watch/animegg/:id/sub|dub/animegg-:ep",
-        "/watch/anineko/:id/sub|dub/anineko-:ep",
-        "/watch/anidbapp/:id/sub|dub/anidbapp-:ep",
         "/watch/animenosub/:id/sub|dub/animenosub-:ep",
         "/watch/anizone/:id/sub|dub/anizone-:ep",
         "/watch/aniwaves/:id/sub|dub/aniwaves-:ep",
-        "/watch/anibd/:id/sub|dub/anibd-:ep",
         "/watch/senshi/:id/sub|dub/senshi-:ep",
         "/watch/kaa/:id/sub|dub/kaa-:ep",
         "/watch/animedunya/:id/sub|dub/animedunya-:ep",
         "/watch/animeonsen/:id/sub|dub/animeonsen-:ep",
+        "/watch/anipm/:id/sub|dub/anipm-:ep",
       ],
     });
   }
