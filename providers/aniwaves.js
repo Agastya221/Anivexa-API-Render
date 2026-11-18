@@ -1,3 +1,4 @@
+import { wreqFetch } from "../core/wreq.js";
 import { getMedia } from "../core/anilist.js";
 import { findVideoExtractor } from "../extractors/index.js";
 import {
@@ -44,13 +45,23 @@ function searchQueries(titles) {
 }
 
 async function fetchText(url, headers = {}) {
-  const response = await fetch(url, {
+  const init = {
     headers: {
       "User-Agent": UA,
       "Accept-Language": "en-US,en;q=0.9",
       ...headers,
     },
-  });
+  };
+  let response = await fetch(url, init);
+  // The site answers 403 to datacenter hosts (Render, 2026-11) but not to browsers: retry with a
+  // browser-like TLS client before giving up.
+  if (response.status === 403 || response.status === 503) {
+    try {
+      response = await wreqFetch(url, { session: "aniwaves", headers: init.headers });
+    } catch {
+      // keep the original answer's error below
+    }
+  }
   const raw = await response.text();
   if (!response.ok) {
     const error = new Error(`AniWaves HTTP ${response.status}: ${url}`);
